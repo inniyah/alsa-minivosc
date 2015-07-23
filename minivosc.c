@@ -248,9 +248,14 @@ static int minivosc_probe(struct platform_device *devptr)
 	dbg("%s: probe", __func__);
 
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0)
 	// no need to kzalloc minivosc_device separately, if the sizeof is included here
 	ret = snd_card_create(index[dev], id[dev],
-	                      THIS_MODULE, sizeof(struct minivosc_device), &card);
+		THIS_MODULE, sizeof(struct minivosc_device), &card);
+#else
+	ret = snd_card_new(&devptr->dev, index[dev], id[dev], THIS_MODULE,
+		sizeof(struct minivosc_device), &card);
+#endif
 
 	if (ret < 0)
 		goto __nodev;
@@ -266,9 +271,9 @@ static int minivosc_probe(struct platform_device *devptr)
 	sprintf(card->shortname, "MySoundCard Audio %s", SND_MINIVOSC_DRIVER);
 	sprintf(card->longname, "%s", card->shortname);
 
-
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0)
 	snd_card_set_dev(card, &devptr->dev); // present in dummy, not in aloop though
-
+#endif
 
 	ret = snd_device_new(card, SNDRV_DEV_LOWLEVEL, mydev, &dev_ops);
 
