@@ -45,6 +45,7 @@ static int debug = 1;
 /* don't use if not actually using kgdb */
 #define BREAKPOINT() asm("   int $3");
 
+#include <linux/version.h>
 
 // copy from aloop-kernel.c:
 #include <linux/init.h>
@@ -176,10 +177,14 @@ static int minivosc_pcm_free(struct minivosc_device *chip);
 static void minivosc_timer_start(struct minivosc_device *mydev);
 static void minivosc_timer_stop(struct minivosc_device *mydev);
 static void minivosc_pos_update(struct minivosc_device *mydev);
-static void minivosc_timer_function(unsigned long data);
 static void minivosc_xfer_buf(struct minivosc_device *mydev, unsigned int count);
 static void minivosc_fill_capture_buf(struct minivosc_device *mydev, unsigned int bytes);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+static void minivosc_timer_function(unsigned long data);
+#else
+static void minivosc_timer_function(struct timer_list *t);
+#endif
 
 // note snd_pcm_ops can usually be separate _playback_ops and _capture_ops
 static struct snd_pcm_ops minivosc_pcm_ops =
@@ -303,13 +308,10 @@ static int minivosc_probe(struct platform_device *devptr)
 	and we first have a chance to set it ... in _open!
 	*/
 
-	ret = snd_pcm_lib_preallocate_pages_for_all(pcm,
+	snd_pcm_lib_preallocate_pages_for_all(pcm,
 	        SNDRV_DMA_TYPE_CONTINUOUS,
 	        snd_dma_continuous_data(GFP_KERNEL),
 	        MAX_BUFFER, MAX_BUFFER); // in both aloop-kernel.c and dummy.c, after snd_pcm_set_ops...
-
-	if (ret < 0)
-		goto __nodev;
 
 	// * will use the snd_card_register form from aloop-kernel.c/dummy.c here..
 	ret = snd_card_register(card);
@@ -383,8 +385,12 @@ static int minivosc_pcm_open(struct snd_pcm_substream *ss)
 	mydev->wvf_lift = 0; 	//init
 
 	// SETUP THE TIMER HERE:
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 	setup_timer(&mydev->timer, minivosc_timer_function,
 	            (unsigned long)mydev);
+#else
+	timer_setup(&mydev->timer, minivosc_timer_function, 0);
+#endif
 
 	mutex_unlock(&mydev->cable_lock);
 	return 0;
@@ -578,9 +584,15 @@ static void minivosc_pos_update(struct minivosc_device *mydev)
 	}
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 static void minivosc_timer_function(unsigned long data)
 {
 	struct minivosc_device *mydev = (struct minivosc_device *)data;
+#else
+static void minivosc_timer_function(struct timer_list *t)
+{
+	struct minivosc_device *mydev = from_timer(mydev, t, timer);
+#endif
 
 	if (!mydev->running)
 		return;
